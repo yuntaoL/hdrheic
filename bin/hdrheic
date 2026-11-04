@@ -1,0 +1,188 @@
+#!/bin/zsh
+# hdrheic — 10-bit Apple HDR HEIC from the Generate_Apple_HDR_Photos encoder.
+# The encoder binary and hdrheic-meta sit next to this script.
+set -euo pipefail
+
+name=hdrheic
+here="${0:A:h}"
+encode="$here/hdrheic-encode"
+meta="$here/hdrheic-meta"
+
+usage() {
+  cat <<'EOF'
+hdrheic — write a 10-bit HEIC that Apple Photos shows as HDR
+
+Usage:
+  hdrheic <image> [-o output.heic] [-m mode] [-q quality]
+  hdrheic -b <folder> [-m mode] [-q quality] [-j jobs]
+
+Modes:
+  hlg        10-bit BT.2100 HLG, lossless     default, best for Photos
+  pq         10-bit BT.2100 PQ, uses -q
+  raw-hlg    camera RAW via Core Image, HLG, lossless
+  raw-pq     camera RAW via Core Image, PQ, lossless
+  p3         10-bit Display P3, uses -q
+  p3-max     10-bit Display P3, lossless
+  sdr        8-bit Display P3, uses -q
+  sdr-max    8-bit Display P3, lossless
+
+  Numbers 1–8 match the upstream script, if you already know them.
+
+Quality is 0.1 to 1.0. Default is 0.85. Lossless modes ignore it.
+Values under 0.75 can drop HDR highlight detail.
+
+The output sits next to the input, with a .heic extension.
+An input that is already .heic is written as <name>_hdr.heic.
+EXIF, IPTC, XMP, and GPS are copied. The HEIC color profile is kept.
+  --no-meta    do not copy metadata
+
+Examples:
+  hdrheic photo.tif
+  hdrheic photo.avif -m pq -q 0.9 -o ~/Desktop/photo.heic
+  hdrheic -b ~/Pictures/export -m hlg
+EOF
+}
+
+if [[ ! -x $encode ]]; then
+  print -u2 "$name: encoder missing ($encode). Run ~/projects/hdrheic/install.sh"
+  exit 1
+fi
+
+typeset -A mode_number
+mode_number=(
+  hlg 5 pq 6 raw-hlg 7 raw-pq 8
+  p3 3 p3-max 4 sdr 1 sdr-max 2
+  1 1 2 2 3 3 4 4 5 5 6 6 7 7 8 8
+)
+
+mode=hlg
+quality=0.85
+output=
+batch=
+jobs=4
+copy_meta=1
+inputs=()
+
+while (( $# )); do
+  case $1 in
+    -h|--help) usage; exit 0 ;;
+    -m|--mode)
+      [[ $# -ge 2 ]] || { print -u2 "$name: $1 needs a value"; exit 2; }
+      mode=$2; shift 2 ;;
+    -q|--quality)
+      [[ $# -ge 2 ]] || { print -u2 "$name: $1 needs a value"; exit 2; }
+      quality=$2; shift 2 ;;
+    -o|--output)
+      [[ $# -ge 2 ]] || { print -u2 "$name: $1 needs a value"; exit 2; }
+      output=$2; shift 2 ;;
+    -b|--batch)
+      [[ $# -ge 2 ]] || { print -u2 "$name: $1 needs a folder"; exit 2; }
+      batch=$2; shift 2 ;;
+    -j|--jobs)
+      [[ $# -ge 2 ]] || { print -u2 "$name: $1 needs a number"; exit 2; }
+      jobs=$2; shift 2 ;;
+    --no-meta) copy_meta=0; shift ;;
+    --) shift; inputs+=("$@"); break ;;
+    -*) print -u2 "$name: unknown option $1"; usage >&2; exit 2 ;;
+    *) inputs+=("$1"); shift ;;
+  esac
+done
+
+number=${mode_number[$mode]-}
+if [[ -z $number ]]; then
+  print -u2 "$name: unknown mode '$mode'. Try: hlg, pq, raw-hlg, raw-pq, p3, p3-max, sdr, sdr-max"
+  exit 2
+fi
+
+if [[ ! $quality =~ '^(0\.[0-9]+|1(\.0+)?)$' ]] || (( quality <= 0 || quality > 1 )); then
+  print -u2 "$name: quality must be from 0.1 to 1.0 (got '$quality')"
+  exit 2
+fi
+
+# Modes 2, 4, 5, 7, 8 are lossless in the upstream encoder. The quality
+# argument is still required, and it is ignored there.
+case $number in
+  2|4|5|7|8) encode_quality=1.0 ;;
+  *) encode_quality=$quality ;;
+esac
+
+default_out() {
+  local in=$1 dir leaf ext stem
+  dir=${in:h}
+  leaf=${in:t}
+  ext=${(L)leaf:e}
+  stem=${leaf:r}
+  if [[ $ext == heic || $ext == heif ]]; then
+    print -r -- "$dir/${stem}_hdr.heic"
+  else
+    print -r -- "$dir/${stem}.heic"
+  fi
+}
+
+convert_one() {
+  local in=$1 out=$2
+  if [[ ! -f $in ]]; then
+    print -u2 "$name: not a file: $in"
+    return 1
+  fi
+  mkdir -p -- ${out:h}
+  "$encode" "$in" "$out" "$encode_quality" "$number"
+  if (( copy_meta )) && [[ -x $meta ]]; then
+    if ! "$meta" "$in" "$out"; then
+      print -u2 "$name: wrote $out but metadata copy failed"
+    fi
+  fi
+}
+
+if [[ -n $batch ]]; then
+  if (( ${#inputs} )) || [[ -n $output ]]; then
+    print -u2 "$name: -b does not take an output path or extra files"
+    exit 2
+  fi
+  if [[ ! -d $batch ]]; then
+    print -u2 "$name: not a folder: $batch"
+    exit 1
+  fi
+  if [[ ! $jobs =~ '^[1-9][0-9]*$' ]]; then
+    print -u2 "$name: jobs must be a positive integer"
+    exit 2
+  fi
+  meta_flag=()
+  (( copy_meta )) || meta_flag=(--no-meta)
+  files=(${(0)"$(find "$batch" -maxdepth 1 -type f \( \
+      -iname '*.tif' -o -iname '*.tiff' \
+      -o -iname '*.jpg' -o -iname '*.jpeg' \
+      -o -iname '*.png' -o -iname '*.avif' \
+      -o -iname '*.heic' -o -iname '*.heif' \
+      -o -iname '*.dng' -o -iname '*.arw' \
+      -o -iname '*.cr2' -o -iname '*.cr3' \
+      -o -iname '*.nef' -o -iname '*.raf' \
+    \) ! -iname '*_hdr.heic' -print0)"})
+  if (( ${#files} == 0 )); then
+    print -u2 "$name: no supported images in $batch"
+    exit 1
+  fi
+  print -N -- "${files[@]}" | xargs -0 -n 1 -P "$jobs" "$0" -m "$mode" -q "$quality" ${meta_flag+"${meta_flag[@]}"} --
+  exit 0
+fi
+
+if (( ${#inputs} == 0 )); then
+  usage >&2
+  exit 2
+fi
+
+if [[ -n $output && ${#inputs} -ne 1 ]]; then
+  print -u2 "$name: -o is for a single input"
+  exit 2
+fi
+
+rc=0
+for in in "${inputs[@]}"; do
+  if [[ -n $output ]]; then
+    out=$output
+  else
+    out=$(default_out "$in")
+  fi
+  convert_one "$in" "$out" || rc=1
+done
+exit $rc
