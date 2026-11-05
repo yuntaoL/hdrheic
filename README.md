@@ -40,9 +40,11 @@ Plug-in: `~/Library/Application Support/Adobe/Lightroom/Modules/AppleHDR.lrplugi
 1. Quit Lightroom Classic and open it again.
 2. File → Plug-in Manager. Apple HDR HEIC should already be loaded from the Modules folder. If it is not, click Add and choose that `.lrplugin` folder.
 3. Export. In the left column, under Post-Process Actions, select **Apple HDR HEIC** and click **Insert**.
-4. Export as usual. File naming, size, sharpening, and metadata still apply. The format menu does not: the action renders a 16-bit HDR TIFF, writes a `.heic`, and deletes the TIFF.
+4. Set File Settings to the format you want to keep, such as AVIF with HDR Output on. The action does not change that format.
+5. In the Apple HDR HEIC section, leave **Keep the exported file** checked to get both files (`photo.avif` and `photo.heic`). Uncheck it to keep only the HEIC.
+6. **HEIC prefix** is optional. Leave it empty to reuse the export name. Set it to `HEIC-` and the HEIC is `HEIC-photo.heic`, so those files sort as their own group and are easy to drag into Photos. Include the space or hyphen yourself.
 
-Pick HLG unless you specifically want PQ. Turn on HDR editing for the photo before export, or the TIFF has no highlight headroom to preserve.
+The converter reads the file Lightroom just wrote. AVIF, JPEG XL, PNG, TIFF, and JPEG all work. Pick HLG unless you specifically want PQ. Turn on HDR editing for the photo, and HDR Output in File Settings, or the HEIC has no highlight headroom.
 
 Save an export preset after you insert the action if you want one click next time.
 

@@ -9,14 +9,35 @@ local function quote(value)
 	return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
-local function heicPathFor(path)
+local function isHeic(path)
+	return path:lower():match("%.hei[cf]$") ~= nil
+end
+
+-- Drop path separators. A blank or all-whitespace prefix means "no prefix".
+-- A trailing space or hyphen is kept, so "HEIC " and "HEIC-" both work.
+local function filePrefix(value)
+	if type(value) ~= "string" then
+		return ""
+	end
+	local cleaned = value:gsub("[/\\:]", "")
+	if cleaned:match("^%s*$") then
+		return ""
+	end
+	return cleaned
+end
+
+-- Sibling HEIC next to the exported file: photo.avif -> photo.heic,
+-- or HEIC-photo.heic when a prefix is set. An export that is already
+-- HEIC becomes photo_hdr.heic so the source is not overwritten.
+local function heicPathFor(path, prefix)
 	local parent = LrPathUtils.parent(path)
 	local leaf = LrPathUtils.leafName(path)
 	local stem = leaf:gsub("%.[^%.]+$", "")
 	if stem == leaf then
 		stem = leaf
 	end
-	return LrPathUtils.child(parent, stem .. ".heic")
+	local suffix = isHeic(path) and "_hdr.heic" or ".heic"
+	return LrPathUtils.child(parent, (prefix or "") .. stem .. suffix)
 end
 
 local function readText(path)
@@ -30,10 +51,23 @@ local function readText(path)
 	return ""
 end
 
+local function refreshSummary(properties)
+	local modeLabel = properties.mode == "pq" and "PQ" or "HLG"
+	local keepLabel = properties.keepOriginal == false and "HEIC only" or "keep original"
+	local summary = modeLabel .. ", " .. keepLabel
+	local prefix = filePrefix(properties.heicPrefix)
+	if prefix ~= "" then
+		summary = summary .. ", " .. prefix
+	end
+	properties.summary = summary
+end
+
 return {
 	exportPresetFields = {
 		{ key = "mode", default = "hlg" },
 		{ key = "quality", default = 85 },
+		{ key = "keepOriginal", default = true },
+		{ key = "heicPrefix", default = "" },
 	},
 
 	startDialog = function(propertyTable)
@@ -43,10 +77,27 @@ return {
 		if type(propertyTable.quality) ~= "number" then
 			propertyTable.quality = 85
 		end
+		if propertyTable.keepOriginal == nil then
+			propertyTable.keepOriginal = true
+		end
+		if type(propertyTable.heicPrefix) ~= "string" then
+			propertyTable.heicPrefix = ""
+		end
 		propertyTable.qualityEnabled = propertyTable.mode ~= "hlg"
-		propertyTable:addObserver("mode", function(properties)
-			properties.qualityEnabled = properties.mode ~= "hlg"
-		end)
+		refreshSummary(propertyTable)
+		if not propertyTable.hdrheicWatching then
+			propertyTable.hdrheicWatching = true
+			propertyTable:addObserver("mode", function(properties)
+				properties.qualityEnabled = properties.mode ~= "hlg"
+				refreshSummary(properties)
+			end)
+			propertyTable:addObserver("keepOriginal", function(properties)
+				refreshSummary(properties)
+			end)
+			propertyTable:addObserver("heicPrefix", function(properties)
+				refreshSummary(properties)
+			end)
+		end
 	end,
 
 	sectionForFilterInDialog = function(viewFactory, _)
@@ -54,22 +105,11 @@ return {
 		local bind = LrView.bind
 		return {
 			title = "Apple HDR HEIC",
-			synopsis = bind {
-				key = "mode",
-				transform = function(value, fromTable)
-					if not fromTable then
-						return value
-					end
-					if value == "pq" then
-						return "PQ"
-					end
-					return "HLG"
-				end,
-			},
+			synopsis = bind "summary",
 			f:column {
 				spacing = 8,
 				f:static_text {
-					title = "Renders a 16-bit HDR TIFF, writes a 10-bit HEIC beside your file name, and deletes the TIFF.",
+					title = "After export, converts that file to a 10-bit HEIC. File Settings stay as you set them: AVIF, JPEG XL, PNG, TIFF, or JPEG.",
 					fill_horizontal = 1,
 					height_in_lines = 2,
 				},
@@ -117,8 +157,34 @@ return {
 						width_in_chars = 4,
 					},
 				},
+				f:row {
+					f:static_text {
+						title = "HEIC prefix:",
+						width_in_chars = 12,
+						alignment = "right",
+					},
+					f:edit_field {
+						value = bind "heicPrefix",
+						width_in_chars = 24,
+						immediate = true,
+					},
+				},
 				f:static_text {
-					title = "HLG is lossless. PQ uses the quality slider. Below 75% can clip HDR highlights, so the slider starts there.",
+					title = "Optional. Leave empty to keep the export name. HEIC- writes HEIC-photo.heic, so the HEIC files sort together and are easy to drag into Photos.",
+					fill_horizontal = 1,
+					height_in_lines = 2,
+				},
+				f:checkbox {
+					title = "Keep the exported file",
+					value = bind "keepOriginal",
+				},
+				f:static_text {
+					title = "Checked: the folder gets both files, such as photo.avif and photo.heic. Unchecked: only the HEIC is kept.",
+					fill_horizontal = 1,
+					height_in_lines = 2,
+				},
+				f:static_text {
+					title = "HLG is lossless. PQ uses the quality slider. Enable HDR in Develop, and turn on HDR Output in File Settings, or the HEIC has no highlight headroom.",
 					fill_horizontal = 1,
 					height_in_lines = 2,
 				},
@@ -154,42 +220,28 @@ return {
 			quality = 1
 		end
 		local qualityText = string.format("%.2f", quality)
-
-		local renditionOptions = {
-			filterSettings = function(_, exportSettings)
-				-- File Settings in the dialog are ignored. HDR has to be a
-				-- wide-gamut high-bit TIFF or the HEIC encoder has nothing to expand.
-				exportSettings.LR_format = "TIFF"
-				exportSettings.LR_export_bitDepth = 16
-				exportSettings.LR_enableHDRDisplay = true
-				-- Same token Lightroom stores for an HDR export preset.
-				exportSettings.LR_export_colorSpace = "p3_hdr"
-				exportSettings.LR_tiff_compressionMethod = "compressionMethod_None"
-				exportSettings.LR_embeddedMetadataOption = "all"
-				local tempDir = LrPathUtils.getStandardFilePath("temp")
-				return LrPathUtils.child(tempDir, "hdrheic-" .. LrUUID.generateUUID() .. ".tif")
-			end,
-		}
+		-- Missing value means keep. Only an explicit false removes the export.
+		local keepOriginal = props.keepOriginal ~= false
 
 		local errors = {}
-		local renames = {}
+		local removeAfter = {}
 
-		for sourceRendition, renditionToSatisfy in filterContext:renditions(renditionOptions) do
+		for sourceRendition, renditionToSatisfy in filterContext:renditions{ stopIfCanceled = true } do
 			local success, pathOrMessage = sourceRendition:waitForRender()
 			if not success then
 				renditionToSatisfy:renditionIsDone(false, pathOrMessage)
 				table.insert(errors, tostring(pathOrMessage))
 			else
-				local tiffPath = pathOrMessage
-				local destPath = renditionToSatisfy.destinationPath
-				local heicPath = heicPathFor(destPath)
-				local logPath = tiffPath .. ".log"
-				-- The encoder keys off a .heic path. Lightroom still looks for
-				-- destinationPath, so a copy is placed there until the export
-				-- records success, then removed.
+				local renderedPath = pathOrMessage
+				local exportPath = renditionToSatisfy.destinationPath or renderedPath
+				local heicPath = heicPathFor(exportPath, filePrefix(props.heicPrefix))
+				local logPath = LrPathUtils.child(
+					LrPathUtils.getStandardFilePath("temp"),
+					"hdrheic-" .. LrUUID.generateUUID() .. ".log"
+				)
 				local cmd = table.concat({
 					quote(bin),
-					quote(tiffPath),
+					quote(renderedPath),
 					"-o",
 					quote(heicPath),
 					"-m",
@@ -203,28 +255,35 @@ return {
 				local status = LrTasks.execute(cmd)
 				if status ~= 0 or not LrFileUtils.exists(heicPath) then
 					local detail = readText(logPath)
+					LrFileUtils.delete(logPath)
 					if detail == "" then
 						detail = "encoder failed (status " .. tostring(status) .. ")"
 					end
-					table.insert(errors, LrPathUtils.leafName(heicPath) .. ": " .. detail)
+					table.insert(errors, LrPathUtils.leafName(exportPath) .. ": " .. detail)
 					renditionToSatisfy:renditionIsDone(false, detail)
 				else
-					if heicPath ~= destPath then
-						if LrFileUtils.exists(destPath) then
-							LrFileUtils.delete(destPath)
-						end
-						LrFileUtils.copy(heicPath, destPath)
-						table.insert(renames, destPath)
-					end
+					LrFileUtils.delete(logPath)
 					renditionToSatisfy:renditionIsDone(true)
+					if not keepOriginal then
+						-- The export file has to exist while Lightroom records success.
+						if renderedPath ~= heicPath then
+							table.insert(removeAfter, renderedPath)
+						end
+						if exportPath ~= heicPath and exportPath ~= renderedPath then
+							table.insert(removeAfter, exportPath)
+						end
+					end
 				end
-				LrFileUtils.delete(tiffPath)
-				LrFileUtils.delete(logPath)
 			end
 		end
 
-		for _, destPath in ipairs(renames) do
-			LrFileUtils.delete(destPath)
+		for _, path in ipairs(removeAfter) do
+			if LrFileUtils.exists(path) then
+				LrFileUtils.delete(path)
+				if LrFileUtils.exists(path) then
+					table.insert(errors, "HEIC was written, but the exported file could not be removed: " .. path)
+				end
+			end
 		end
 
 		if #errors > 0 then

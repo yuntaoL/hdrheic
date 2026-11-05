@@ -152,7 +152,7 @@ if [[ -n $batch ]]; then
   files=(${(0)"$(find "$batch" -maxdepth 1 -type f \( \
       -iname '*.tif' -o -iname '*.tiff' \
       -o -iname '*.jpg' -o -iname '*.jpeg' \
-      -o -iname '*.png' -o -iname '*.avif' \
+      -o -iname '*.png' -o -iname '*.avif' -o -iname '*.jxl' \
       -o -iname '*.heic' -o -iname '*.heif' \
       -o -iname '*.dng' -o -iname '*.arw' \
       -o -iname '*.cr2' -o -iname '*.cr3' \

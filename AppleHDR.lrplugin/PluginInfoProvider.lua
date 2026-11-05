@@ -12,7 +12,7 @@ return {
 						height_in_lines = 2,
 					},
 					f:static_text {
-						title = "Each photo is rendered as a 16-bit HDR TIFF, then written as a 10-bit BT.2100 HEIC for Apple Photos. The TIFF is removed.",
+						title = "It converts whatever this export writes (AVIF, JPEG XL, PNG, TIFF, or JPEG) into a 10-bit HEIC. You can keep the exported file or remove it.",
 						width_in_chars = 55,
 						height_in_lines = 2,
 					},

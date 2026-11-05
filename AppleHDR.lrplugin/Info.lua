@@ -5,10 +5,10 @@ return {
 	LrPluginName = "Apple HDR HEIC",
 	LrPluginInfoUrl = "https://github.com/yuntaoL/hdrheic",
 	LrPluginInfoProvider = "PluginInfoProvider.lua",
-	VERSION = { major = 1, minor = 0, revision = 0, build = 0 },
+	VERSION = { major = 1, minor = 2, revision = 0, build = 0 },
 
 	-- Shows up in the Export dialog under Post-Process Actions.
-	-- Insert it once. Export then writes a .heic and does not keep the TIFF.
+	-- Insert it once. It converts the exported file and can keep that file.
 	LrExportFilterProvider = {
 		title = "Apple HDR HEIC",
 		file = "ExportFilter.lua",
