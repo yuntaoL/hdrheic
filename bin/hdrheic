@@ -44,7 +44,7 @@ EOF
 }
 
 if [[ ! -x $encode ]]; then
-  print -u2 "$name: encoder missing ($encode). Run ~/projects/hdrheic/install.sh"
+  print -u2 "$name: encoder missing ($encode). Re-run the hdrheic installer."
   exit 1
 fi
 

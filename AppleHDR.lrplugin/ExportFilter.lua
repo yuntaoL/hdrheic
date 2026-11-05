@@ -199,7 +199,7 @@ return {
 		if not LrFileUtils.exists(bin) then
 			LrDialogs.message(
 				"Apple HDR HEIC",
-				"Could not find " .. bin .. ".\nRun ~/projects/hdrheic/install.sh, then export again.",
+				"Could not find " .. bin .. ".\nRe-run the hdrheic installer, then export again.",
 				"critical"
 			)
 			return

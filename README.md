@@ -2,7 +2,7 @@
 
 Short command and a Lightroom Classic post-process action for [Generate_Apple_HDR_Photos](https://github.com/HCYANG2000/Generate_Apple_HDR_Photos).
 
-That repo is cloned, unmodified, at `~/projects/Generate_Apple_HDR_Photos`. This folder only wraps it. The encoder is still `HDR_iOS17.swift`. `hdrheic` compiles it once and gives it a shorter name.
+One command installs it. You do not clone this repo or the converter yourself.
 
 ## Source
 
@@ -13,7 +13,7 @@ That repo is cloned, unmodified, at `~/projects/Generate_Apple_HDR_Photos`. This
 | Lightroom plug-in | `AppleHDR.lrplugin/` (`Info.lua`, `ExportFilter.lua`, `PluginInfoProvider.lua`) |
 | Installer | `install.sh` |
 
-`~/.local/bin/hdrheic` and the Lightroom Modules copy are installed from these files. They are not a second source tree.
+`~/.local/bin/hdrheic` is the command. Lightroom Classic loads a copy of `AppleHDR.lrplugin` from its Modules folder. For a normal install, both of those come from `~/.local/share/hdrheic`.
 
 ## Command
 
@@ -48,10 +48,24 @@ The converter reads the file Lightroom just wrote. AVIF, JPEG XL, PNG, TIFF, and
 
 Save an export preset after you insert the action if you want one click next time.
 
-## Install again
+## Install
 
 ```sh
-~/projects/hdrheic/install.sh
+curl -fsSL https://raw.githubusercontent.com/yuntaoL/hdrheic/main/install.sh | zsh
 ```
 
-The script recompiles `~/projects/Generate_Apple_HDR_Photos/HDR_iOS17.swift` and refreshes `~/.local/bin/hdrheic`.
+The installer clones this repo to `~/.local/share/hdrheic` and the converter to `~/.local/share/hdrheic-converter`. It compiles `~/.local/bin/hdrheic` and copies the plug-in to the only place Lightroom Classic will load it:
+
+`~/Library/Application Support/Adobe/Lightroom/Modules/AppleHDR.lrplugin`
+
+The Modules folder is that installed copy. The files the installer owns are in `~/.local/share/hdrheic` (`bin/hdrheic`, `src/meta.swift`, and `AppleHDR.lrplugin/`). Run the same command again to update.
+
+From a checkout you are editing, `./install.sh` installs that checkout and leaves it where it is.
+
+To compile against a converter you already have:
+
+```sh
+HDRHEIC_CONVERTER=~/Generate_Apple_HDR_Photos ./install.sh
+```
+
+That folder must contain `HDR_iOS17.swift`. The installer does not modify it. `HDRHEIC_UPSTREAM` is the old name for the same setting.
